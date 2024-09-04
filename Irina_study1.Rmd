@@ -16,7 +16,7 @@ library('flextable')
 ```
 
 ```{r}
-data <- read_tsv('data_tsv.tsv')
+#data <- read_tsv('data_tsv.tsv')
 #data %>% glimpse()
 ```
 
