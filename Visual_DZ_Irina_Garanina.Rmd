@@ -19,7 +19,7 @@ library(forcats)
 theme_custom = theme(axis.title = element_text(size = 25),  axis.text = element_text(size = 20), legend.title = element_text(size = 25),  legend.text = element_text(size = 20), plot.title = element_text(hjust = 0.5, size = 25) ,plot.subtitle = element_text(hjust = 0.5, size = 20) )
 ```
 
-```{r dataLoading}
+```{r}
 ## Data reading
 
 hogwarts <- read_csv("dayavis_BI_2024/data/hogwarts_2024.csv")
@@ -30,13 +30,15 @@ hogwarts |> head()
 hogwarts |> glimpse()
 ```
 
-```{r preparing data}
+```{r}
+#preparing data
 hogwarts <- hogwarts |> mutate(
   across(c(house, course, sex, wandCore, bloodStatus), ~ as.factor(.x))
 )
 ```
 
-```{r bars task 1}
+```{r}
+#bars task 1
 ggplot(data = hogwarts, aes(x = course)) + 
   geom_bar(colour = 'red', fill = '#019834') + 
   theme_bw() +
@@ -44,7 +46,9 @@ ggplot(data = hogwarts, aes(x = course)) +
 
 ```
 
-```{r bars task 2, conclusion that both Gryffindor and Slytherin has highest percentage of pure-blood students, but Gfyffindor has more than twice higher percentage of muggle-borns compared with Slytherin, and the highest among all houses}
+```{r }
+#bars task 2, conclusion that both Gryffindor and Slytherin has highest percentage #of pure-blood students, but Gfyffindor has more than twice higher percentage of #muggle-borns compared with Slytherin, and the highest among all houses
+
 ggplot(data = hogwarts) + 
   geom_bar(aes(x = house, fill = bloodStatus), position = "fill") + 
   theme_light() +
@@ -52,11 +56,10 @@ ggplot(data = hogwarts) +
 
 ```
 
-```{r bars task 3}
-hogwarts_puremuggle <- hogwarts |> filter(bloodStatus %in% c('pure-blood', 'muggle-born'))
-#hogwarts_puremuggle |> glimpse()
-
-ggplot(data = hogwarts_puremuggle) + 
+```{r}
+#bars task 3
+hogwarts |> filter(bloodStatus %in% c('pure-blood', 'muggle-born')) |> 
+ggplot() + 
   geom_bar(aes(x = house, fill = bloodStatus), position = "fill") + 
   theme_light() +
   theme_custom +
@@ -69,7 +72,8 @@ ggplot(data = hogwarts_puremuggle) +
   
 ```
 
-```{r boxplots tasks 1-3, fig.width=14, fig.height=14}
+```{r, fig.width=14, fig.height=14}
+#boxplots tasks 1-3
 ggplot(hogwarts, aes(x = fct_reorder(house,week_3, .desc = TRUE) , y = week_3, fill = bloodStatus))+
   geom_boxplot(notch = TRUE, outliers = FALSE, width = 0.5, size = 0.5)+
   geom_jitter(width = 0.25) +
@@ -84,8 +88,8 @@ ggplot(hogwarts, aes(x = fct_reorder(house,week_3, .desc = TRUE) , y = week_3, f
 
 ```
 
-```{r other task 1, fig.width=14, fig.height=25}
-
+```{r, fig.width=14, fig.height=25}
+#other task 1
 hogwarts |> 
   filter(course == 5 ) |> mutate(id = as.factor(id)) |>
   mutate(overal_mark = rowSums(across(contains("week")))) |>
@@ -109,8 +113,8 @@ hogwarts |>
   
 ```
 
-```{r other task 2}
-
+```{r}
+#other task 2
 ggplot(data = hogwarts, aes(x = `Astronomy exam`, fill = house == "Slytherin")) + 
   geom_histogram(binwidth = 5, colour = 'red') + 
   scale_fill_manual(values = c("TRUE" = "green", "FALSE" = "grey")) +  
@@ -120,8 +124,8 @@ ggplot(data = hogwarts, aes(x = `Astronomy exam`, fill = house == "Slytherin")) 
 
 ```
 
-```{r other task 3}
-
+```{r}
+#other task 3
 theme_custom_bg = theme(#старые настройки
                         axis.title = element_text(size = 25),
                         axis.text = element_text(size = 20),
@@ -149,13 +153,13 @@ ggplot(hogwarts, aes(x = fct_reorder(house,week_3, .desc = TRUE) , y = week_3, f
 
 ```
 
-```{r facets task 1}
-
+```{r}
+#facets task 1
 #Для гистрограмм когда они находятся друг пож другом как в самомпервом примере фасетирования, тк удобнее сравнивать #гистограммы мне у них медианы, хвосты и пр. ДЛя violin plot наоборот тк медианы варьируют в вертикальном #направлении в зависимости от данных. Общее правило такое, что если основная метрика, на которую смотрим варьирует #по вертикали, тогда графики удобнее сравнивать в одном ряду, а если по горизонтали, то друг под другом.
 ```
 
-```{r facets task 2}
-
+```{r}
+#facets task 2
 ggplot(data = hogwarts, aes(x = `Astronomy exam`)) + 
   geom_histogram(binwidth = 5, colour = 'red') + 
   labs(y = 'Number of students') +
@@ -163,7 +167,8 @@ ggplot(data = hogwarts, aes(x = `Astronomy exam`)) +
   theme_custom + facet_wrap(vars(course))
 ```
 
-```{r facets task 3}
+```{r}
+#facets task 3
 hogwarts |> pivot_longer(cols = c(`Defence against the dark arts exam`, `Herbology exam`), names_to = "Subject", values_to = "Score") |> 
 ggplot() + 
   geom_density(aes(x = Score, fill = Subject), alpha = 0.5) +
