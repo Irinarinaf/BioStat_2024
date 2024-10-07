@@ -1,0 +1,95 @@
+---
+title: "Irina_Garanina_task"
+author: "Irina Garanina"
+date: "2024-09-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(digits = 22)
+```
+
+```{r setup, include=FALSE}
+library('readr')
+library(tidyverse)
+
+```
+
+```{r}
+#upload data
+
+df <- read_csv("carrental.csv")
+df |> head()
+# Убираем дубликаты по id, чтобы считать по уникальным клиентам
+df_unique <- df %>%
+  distinct(id, .keep_all = TRUE) %>%
+  mutate(rental_duration = as.numeric(stop - start + 1))  # Вычисляем продолжительность аренды
+```
+
+```{r}
+ #Распространеннность experience
+df_unique%>% 
+  summarise(prevalence = sum(experience == 1) / n() * 100)
+
+#результаты означают, что в момент наблюдения у 32% водителей бравших автомобили в аренду был опыт вождения
+```
+
+```{r}
+#Риск “accident” в общей группе, в группе “experience” и в группе без “experience”
+
+# 1. Риск ДТП в общей группе
+risk_overall <- df_unique %>%
+  summarise(risk = sum(accident == 1) / n() * 100)
+
+print(risk_overall$risk)
+
+#результаты означают, что риск ДТП среди всех водителей равен 22%
+```
+
+```{r}
+
+# 2. Риск ДТП среди клиентов с опытом вождения
+risk_experience <- df_unique %>%
+  filter(experience == 1) %>%
+  summarise(risk = sum(accident == 1) / n() * 100)
+
+print(risk_experience$risk)
+
+#результаты означают, что риск ДТП среди опытных водителей равен 9.38%
+```
+
+```{r}
+
+# 3. Риск ДТП среди клиентов без опыта вождения
+risk_no_experience <- df_unique %>%
+  filter(experience == 0) %>%
+  summarise(risk = sum(accident == 1) / n() * 100)
+
+print(risk_no_experience$risk)
+
+#результаты означают, что риск ДТП среди опытынх водителей равен 27.94,что почти в 3 раза выше риска для опытных водителей
+```
+
+```{r}
+
+# 1. Плотность событий в общей группе
+incidence_rate_overall <- df_unique %>%
+  summarise(incidence_rate = sum(accident) / sum(rental_duration)*365.25)
+
+# 2. Плотность событий среди клиентов с опытом вождения
+incidence_rate_experience <- df_unique %>%
+  filter(experience == 1) %>%
+  summarise(incidence_rate = sum(accident) / sum(rental_duration)*365.25)
+
+# 3. Плотность событий среди клиентов без опыта вождения
+incidence_rate_no_experience <- df_unique %>%
+  filter(experience == 0) %>%
+  summarise(incidence_rate = sum(accident) / sum(rental_duration)*365.25)
+
+print(incidence_rate_overall$incidence_rate)
+print(incidence_rate_experience$incidence_rate)
+print(incidence_rate_no_experience$incidence_rate)
+
+#результаты по плотности событий в год показыают, что плотность событий практически не различается для опытнах и неопытных водителей (1.12 аварий/год для опытных и 1.09 аварий/год для неопытных) и плотность аварий у опытных водителей даже выше, чем не у опытных
+```

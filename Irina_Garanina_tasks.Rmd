@@ -1,0 +1,66 @@
+---
+title: "Домашнее задание по мерам заболеваемости/случаемости"
+author: Irina Garanina
+date: 16.09.2024
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+library('readr')
+library(tidyverse)
+```
+
+```{r}
+#upload data
+
+df <- read_csv("carrental.csv")
+df |> head()
+```
+
+```{r}
+ #Распространеннность experience
+df%>% 
+  distinct(id, .keep_all = TRUE) %>%  # Убираем дубликаты по id, тк нигде не указано, что в датасете одна аренда на водителя, и предполагаем, что id это идентификатор водителя, а не запись аренды автомобиля
+  summarise(prevalence = sum(experience == 1) / n() * 100) #считаем распросраненность на индивидуальных водителей
+
+#результаты означают, что в момент наблюдения у 32% водителей бравших автомобили в аренду был опыт вождения
+
+```
+
+```{r}
+#Риск “accident” в общей группе, в группе “experience” и в группе без “experience”
+
+# Убираем дубликаты по id, чтобы считать по уникальным клиентам
+df_unique <- df %>%
+  distinct(id, .keep_all = TRUE)
+
+# 1. Риск ДТП в общей группе
+risk_overall <- df_unique %>%
+  summarise(risk = sum(accident == 1) / n() * 100)
+
+# 2. Риск ДТП среди клиентов с опытом вождения
+risk_experience <- df_unique %>%
+  filter(experience == 1) %>%
+  summarise(risk = sum(accident == 1) / n() * 100)
+
+# 3. Риск ДТП среди клиентов без опыта вождения
+risk_no_experience <- df_unique %>%
+  filter(experience == 0) %>%
+  summarise(risk = sum(accident == 1) / n() * 100)
+
+# Вывод результатов
+risk_overall
+```
+
+```{}
+```
+
+```{r}
+df_unique <- df %>%
+  distinct(id, .keep_all = TRUE)
+
+# 1. Риск ДТП в общей группе
+df_unique %>%
+  summarise(risk = sum(accident == 1) / n() * 100)
+```

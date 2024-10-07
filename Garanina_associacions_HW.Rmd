@@ -1,0 +1,101 @@
+---
+title: "Associations homework"
+authot: Irina Garanina
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+library('readr')
+library(tidyverse)
+library(epitools)
+```
+
+```{r}
+#read file
+diabetes <- read_csv("diabetes.csv")
+diabetes |> head()
+```
+
+```{r}
+#read file
+pneu <- read_csv("pneumonia.csv")
+pneu |> glimpse()
+```
+
+```{r}
+# задание 1 - сделаем таблицу с частотами
+summary_table <- diabetes %>%
+  group_by(`ИМТ`, `Диабет`) %>%
+  summarise(n = n())   %>%
+  pivot_wider(names_from = `Диабет`, values_from = n, values_fill = 0)
+
+print(summary_table)
+```
+
+```{r}
+#добавим колонку риск
+summary_table <- summary_table %>%
+  mutate(Risk = `Есть` / (`Есть` + `Нет`))
+```
+
+```{r}
+#относительный риск
+RR <- summary_table$Risk[summary_table$`ИМТ` == "Высокий"] /
+      summary_table$Risk[summary_table$`ИМТ` == "Нормальный"]
+RR
+```
+
+```{r}
+#разница рисков
+RD <- summary_table$Risk[summary_table$`ИМТ` == "Высокий"] -
+      summary_table$Risk[summary_table$`ИМТ` == "Нормальный"]
+RD
+
+#результаты показывают, что риск заболевания диабетом выше у людей с высоким ИМТ более чем в 2 раза по сравнению с теми, у кого нормальный ИМТ. При этом  разница в рисках тоже значительная и составляет почти 33 процента в пересчеты на проценты.
+```
+
+```{r}
+#чтобы убедиться, что ассоциация дейсвительно есть можно посчитать p-value для тестов на ассоциацию и посмотреть на доверительные интервалы. Тест считается, а вот для доверительного интервала для RR нет специальной функции в R, можно вручную посчитать Wald,  но я посчитала в SAS
+#(1.5301	3.2874), 1 не входит в интервал, значит можно считать, что риски отличаются 
+chisq.test(table(diabetes$`Диабет`, diabetes$`ИМТ`)
+```
+
+```{r}
+
+
+```
+
+```{r}
+#таблица сопряжения для ресторана, хи-квадрат тест и OR
+rest2 <- t(table(pull(pneu,2), pull(pneu,4)))
+OR_rest <- (rest2[1,1]/rest2[1,2])/(rest2[2,1]/rest2[2,2])
+print (OR_rest)
+print(rest2)
+chisq.test(rest2)
+```
+
+```{r}
+#для интереса можно сравнить что предлагает epiR для case control исследования. Результаты не отличаются, а доверительный интервал и p-value говорят что взоимосвязи для ресторана нет
+epi.2by2(rest2, method = 'case.control')
+```
+
+```{r}
+#то же самое ддя тц
+tc2 <- t(table(pull(pneu,2), pull(pneu,3)))
+OR_tc2 <- (tc2[1,1]/tc2[1,2])/(tc2[2,1]/tc2[2,2])
+print (OR_tc2)
+print(tc2)
+chisq.test(tc2)
+#тут судя по p-value и размеру эффекта есть ассоциация
+```
+
+```{r}
+#то же самое ддя общественного места
+om2 <- t(table(pull(pneu,2), pull(pneu,5)))
+OR_om2 <- (om2[1,1]/om2[1,2])/(om2[2,1]/om2[2,2])
+print (OR_om2)
+print(om2)
+chisq.test(om2)
+
+#для общественного места судя по OR, который равен 1 и p-value ассоциации нет
+```
