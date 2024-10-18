@@ -1,0 +1,282 @@
+---
+title: "R Notebook Basisc of Data Visualization with R"
+author: "Irina Garanina"
+date: 18.10.2024
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, error = FALSE)
+library('readr')
+library('ggplot2')
+library('tidyverse')
+library('ggpubr')
+library(forcats)
+library(ggpattern)
+library('hexbin')
+library(gridExtra)
+theme_custom = theme(axis.title = element_text(size = 25),  axis.text = element_text(size = 20), legend.title = element_text(size = 25),  legend.text = element_text(size = 20), plot.title = element_text(hjust = 0.5, size = 25) ,plot.subtitle = element_text(hjust = 0.5, size = 20) ) + theme_light()
+```
+
+```{r}
+hogwarts <- read_csv("hogwarts_2024.csv")
+hogwarts |> glimpse()
+```
+
+```{r}
+# Changing some variables type to factors
+hogwarts <- hogwarts |> mutate(
+  across(c(house, course, sex, wandCore, bloodStatus), ~ as.factor(.x))
+)
+```
+
+## Scatterplots, task 1
+
+```{r}
+#Scatterplots, task 1
+hogwarts |> 
+  ggplot(aes(x = `result`, 
+                 y = `Herbology exam`))+
+  geom_point()+ 
+   geom_smooth(se = FALSE,
+              method = "lm")  + 
+  theme_custom
+```
+
+#### Похоже, что есть сильная линейная зависимость между общими результатами студента и результатами экзамена по травологии
+
+## Scatterplots, task 2
+
+```{r fig.width=8, fig.height=6}
+
+hogwarts |> pivot_longer(cols = c(`Herbology exam`, `Muggle studies exam`, `Divinations exam`, `Potions exam`), 
+               names_to = "exam", values_to = "score") |> 
+ ggplot(aes(x = `result`, y = `score`)) +
+  geom_point(aes(colour = house)) + 
+   geom_smooth(se = FALSE, method = "lm") +
+   scale_colour_manual(values = c("Gryffindor" = "#C50000", 
+                             "Hufflepuff" = "#ECB939", 
+                             "Ravenclaw" = "#41A6D9", 
+                             "Slytherin" = "#1F5D25")) + 
+   labs( y = "Single exam result") +
+  theme_custom
+```
+
+#### Зависимость с первого графика все еще сохранилась в целом для всех экзаменов, но ее нарушают ученики Слизерина, имеющие высокие оценки по какому-то предмету, независимо от общего тренда успеваемости
+
+# Scatterplots, task 3
+
+```{r}
+hogwarts |> pivot_longer(cols = c(`Herbology exam`, `Muggle studies exam`, `Divinations exam`, `Potions exam`), 
+               names_to = "exam", values_to = "score") |> 
+ ggplot(aes(x = `result`, y = `score`)) +
+  geom_point(aes(colour = house, shape = exam)) + 
+   geom_smooth(se = FALSE, method = "lm",aes(linetype = exam)) + 
+   scale_colour_manual(values = c("Gryffindor" = "#C50000", 
+                             "Hufflepuff" = "#ECB939", 
+                             "Ravenclaw" = "#41A6D9", 
+                             "Slytherin" = "#1F5D25")) + 
+   labs( y = "Single exam result") +
+  theme_custom
+
+```
+
+# Geom_col, task 1
+
+```{r fig.width=8, fig.height=5}
+
+
+hogwarts |>
+  mutate(semesterScore = rowSums(across(21:37))) |> 
+  group_by(bloodStatus) |>
+  summarise(totalScore = sum(semesterScore, na.rm = TRUE)) |> ggplot() +
+  geom_col(aes(x = bloodStatus, y = totalScore, fill = bloodStatus)) +
+  theme_custom
+```
+
+#### Версии почему результаты такие: 1. Разное количество учеников в каждой группе 2. Маглам сложнее учиться 3. Чистокровные относятся к более высокому и привелигированному классу, для которого учеба менее важна, чем для полукровок
+
+# Geom_col, task 2
+
+```{r}
+hogwarts |>
+  mutate(semesterScore = rowSums(across(21:37))) |> 
+  group_by(bloodStatus) |>
+  summarise(totalScore = sum(semesterScore, na.rm = TRUE),
+            studentCount = n()) |> ggplot() +
+  geom_col(aes(x = fct_reorder(bloodStatus,totalScore,.desc = TRUE),
+               y = totalScore, fill = bloodStatus)) +
+  geom_label(aes(x = fct_reorder(bloodStatus,totalScore,.desc = TRUE), y = totalScore, label = studentCount)) +
+  labs(title = "Distribution of Semester Scores by Blood Status",
+       x = "Blood Status",
+       y = "Total Semester Score (Weeks 1-17)") +
+  theme_custom +
+  theme(legend.position = "none")
+```
+
+#### Результат соответсвует моей первой гипотезе
+
+# Geom_col, task 3
+
+```{r}
+DZ2 <- hogwarts |>
+  mutate(semesterScore = rowSums(across(21:37))) |> 
+  group_by(bloodStatus, sex) |>
+  summarise(totalScore = sum(semesterScore, na.rm = TRUE),
+            studentCount = n()) |>
+  ggplot(aes(y = fct_reorder(bloodStatus,totalScore),
+               x = totalScore, fill = bloodStatus, group = sex))+
+  geom_col(position = position_dodge(0.9)) +
+  geom_text(aes(x = 9300, label = studentCount), position = position_dodge(0.9)) +
+  geom_col_pattern(
+    aes(pattern = sex),
+    pattern_fill = "black",
+    pattern_angle = 45,
+    pattern_density = 0.1,
+    pattern_spacing = 0.01,
+    position = position_dodge2(preserve = 'single'),
+  ) +
+  #не нашла способа как отобразить пол в подписи к осям и как сделать раскраску баров попроще, этот вариант нагуглила
+  scale_pattern_manual(
+    values = c("none", "stripe"),
+    guide = guide_legend(override.aes = list(fill = "grey70"))) + 
+  scale_fill_discrete(
+    guide = guide_legend(override.aes = list(pattern = "none"))) + 
+  labs(title = "Distribution of Semester Scores by Blood Status",
+       x = "Blood Status",
+       y = "Total Semester Score (Weeks 1-17)") +
+  scale_x_continuous(breaks = seq(0,9000,l=10)) + 
+  theme_custom +
+  theme()
+
+DZ2
+
+ggsave("DZ2.png", DZ2, width = 8, height = 5, dpi = 300, units = "in")
+
+```
+
+# Geom_col, task 4
+
+#### Coord_flip переворачивает график, это удобно когда все элементы имеют координаты в осях, если они имеют позицию заданную через направление это может не сработать.
+
+# Other task 1
+
+```{r}
+hogwarts_long <- hogwarts |> pivot_longer(cols = c('Herbology exam', 'Study of ancient runes exam'), names_to = "group", values_to = "value")
+
+density <- hogwarts_long |>
+ggplot(aes(x = value, fill = group, color = group)) +
+  geom_density(alpha = 0.4) + 
+  labs( x = "Value", y = "Density") +
+  theme_custom
+
+boxplot <- hogwarts_long |>
+ggplot(aes(x=group, y=value)) + 
+    geom_boxplot(aes(fill=group), alpha=0.2) + 
+    scale_x_discrete(labels=c("Herbology","Ancient runes")) +
+    xlab("Exam")+
+    scale_fill_manual(labels=c("Herbology","Ancient runes"),
+                    values = c("Herbology exam" = "lightblue", "Study of ancient runes exam" = "red", name="Exam"))+ 
+  theme_custom
+
+heat <- hogwarts |> 
+ggplot(aes(x=`Herbology exam`, y = `Study of ancient runes exam`)) +  geom_bin2d() + scale_fill_gradient(low = "lightblue", high = "red") +
+  theme_custom +
+  labs(x = "Herbology", y = "Ancient runes")
+```
+
+```{r, fig.width=10, fig.height=10}
+grid.arrange(arrangeGrob(boxplot, heat, ncol = 2), density, nrow = 2)
+```
+
+# Other, task 2
+
+```{r, fig.width=10, fig.height=10}
+mean_potions <- hogwarts |>
+  group_by(bloodStatus) |>
+  summarize( slytherinPercent = round(mean(house == "Slytherin") * 100),
+         avgPotionGrade = mean(`Potions exam`, na.rm = TRUE)) |>
+  ggplot() +
+  geom_col(aes(x = bloodStatus, y = avgPotionGrade, fill = bloodStatus)) +
+  geom_label(aes(x =bloodStatus, y = avgPotionGrade, label = slytherinPercent)) +
+  labs(title = "Distribution of Potions Exam Scores by Blood Status",
+       x = "Blood Status",
+       y = "Potions exam") +
+  theme_custom +
+  theme(legend.position = "none")
+
+houses<- hogwarts |>
+  group_by(bloodStatus, house) |>
+  summarise(studentCount = n()) |>
+  group_by(bloodStatus) |>
+  mutate(totalStudents = sum(studentCount),
+  percentage = (studentCount / totalStudents) * 100) |>
+  ungroup()|> 
+  ggplot( aes(x = bloodStatus, y = percentage, fill = house)) +
+  geom_col() +
+  scale_fill_manual(values = c("Gryffindor" = "#C50000", 
+                             "Hufflepuff" = "#ECB939", 
+                             "Ravenclaw" = "#41A6D9", 
+                             "Slytherin" = "#1F5D25")) +
+  ylim(0, 100) + theme_custom
+
+boxplot <- hogwarts |>
+  ggplot(aes(x = house, y = `Potions exam`, fill = house)) +
+  geom_boxplot() +
+  scale_fill_manual(values =  c("Gryffindor" = "#C50000", 
+                             "Hufflepuff" = "#ECB939", 
+                             "Ravenclaw" = "#41A6D9", 
+                             "Slytherin" = "#1F5D25")) +
+  theme_custom +
+  theme(legend.position = "none")
+
+ggarrange(ggarrange(mean_potions, houses, ncol = 2), 
+          ggarrange(boxplot), 
+          nrow = 2)
+```
+
+#### Основываясь на этом и предыдущих графиках мне показалось, что оценки по зельеварению ставятся выше ученикам Слизерина, я посчитала процент учеников Слизерина, который показан числом на верхнем графике. Чтобы убедиться на втором графике показала распределение учеников по факультетам разного происхождения. У меня появилась еще идея, что возможно дело еще в учениках Гриффиндора, которым могут занижать оценку по этому предмету, поэтому построила третий график. Из него понятно, что дело вероятнее всего в учениках из Слизерина, в Гриффиндоре тоже есть небольшое снижение по сравнению с остальными, но не похоже на статистически значимое.
+
+# Воспроизведение графика
+
+```{r, fig.width=8, fig.height=6}
+
+sex_labels <- c("male" = "Мальчики", "female" = "Девочки")
+
+hogwarts |> ggplot(aes(x = house, y = result, fill = house)) +
+  geom_violin(trim = TRUE) +  # Violin plot без обрезки
+  facet_grid(. ~ sex, labeller = labeller(sex = sex_labels)) +     # Фасет по полу в один ряд
+  geom_boxplot(width = 0.05, fill = "white", color = "gray", outlier.shape = NA) +  # Боксплот внутри
+  stat_summary(aes(y = `Potions exam`), fun = mean, geom = "point", shape = 23, size = 5, color ='black', fill = "brown", stroke = 1.5) +  # среднее ромбом
+  theme_minimal() +            
+  labs(
+    title = "Баллы студентов Хогвартса",
+    subtitle = "Распределение числа баллов у студентов различных факультетов Хогвартса в 2023-2024 учебном году",
+    caption = "Источник: нездоровая фантазия автора лекции",
+    y = 'Количество очков'
+  ) +
+  theme(
+    strip.background = element_rect(fill = "gray90", color = NA),  # Серый фон заголовков фасетов
+    strip.text = element_text(color = "black"),  # Чёрный текст заголовков фасетов
+    panel.grid = element_blank(),  # Убираем сетку с фона
+    panel.background = element_rect(fill = "white", color = NA),  # Белый фон
+    legend.position = c(0.5, 0.15),  # Легенда внизу
+    legend.justification = "center",  # Центрируем легенду
+    legend.direction = "vertical",  # Легенда в столбик
+    legend.box = "vertical",  # Легенда в вертикальном формате
+    legend.text = element_text(face = "italic"),
+    plot.caption = element_text(hjust = 1),  # Сноска справа
+    plot.title = element_text(hjust = 0.5),  # Центрирование заголовка
+    axis.text.x = element_blank(),#убираем подписи на оси X
+    axis.title.x = element_blank(),  # Убираем название оси X
+    plot.subtitle = element_text(size = 9, color = "brown", hjust = 0.5),  # Центрирование и коричневый цвет сабтайтла
+  ) +
+  scale_y_continuous(breaks = seq(-300, 250, by = 50)) +
+  geom_hline(yintercept = 0, color = "orange", linetype = "dashed") +  # Пунктирная линия на уровне 0
+  scale_fill_manual(values = c("Gryffindor" = "#C50000", 
+                             "Hufflepuff" = "#ECB939", 
+                             "Ravenclaw" = "#41A6D9", 
+                             "Slytherin" = "#1F5D25"), name = 'Факультет',
+                              labels=c("Гриффиндор","Пуффендуй", "Когтевран", "Слизерин"))
+  
+```
