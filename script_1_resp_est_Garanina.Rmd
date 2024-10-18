@@ -1,0 +1,172 @@
+---
+title: "Estimation of mean and SE"
+author: "Evgeny Bakin"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+
+```
+
+## Модель пациента: исследование ответа на терапию
+
+```{r pressure, echo=FALSE}
+
+df <- data.frame(resp = c(rep('1', 30), rep('0', 70))) #для начала возьмем 100 пациентов с ответов на терапию в 30% случаев, ответ это 1
+
+ggplot(df, aes(x=resp)) +
+  geom_bar() + 
+  theme_bw()
+```
+
+## Характеристики ответа
+
+```{r characteristics}
+
+true_resp <- df %>%
+  filter(resp == "1") %>%
+  summarise(true_resp = n() / nrow(df)) # Истинная доля пациетнов с ответом 
+
+print(true_resp)
+```
+
+## Однократная оценка по выборке
+
+```{r sample_1}
+
+n_patients <- 5 # Количество добровольцев 
+
+my_group_sample <- df %>% sample_n(5, replace = TRUE) # Результаты добровольцев
+
+print(my_group_sample)
+
+sample_resp <- my_group_sample %>% filter(resp == "1") %>%
+  summarise(sample_resp <- n() / nrow(df)) 
+
+print(sample_resp)
+
+```
+
+## Набираем статистику
+
+```{r sample_n}
+n_patients <- 5 # Количество добровольцев
+n_repeats <- 1000 # Количество повторений эксперимента
+
+df_all_repeats <- map_df(1:n_repeats, ~{
+  df %>%
+    sample_n(n_patients, replace = TRUE) %>% # Для каждой итерации выбираем 5 случайных строк
+    mutate(n_exp = .x,   # Добавляем колонку с номером эксперимента
+    id = row_number())
+})
+
+```
+
+## Оценка доли с ответом в каждом эксперименте
+
+```{r estimations}
+
+df_sample_mean <- df_all_repeats %>% 
+  group_by(n_exp) %>% 
+  summarise(
+      sample_resp = mean(resp == "1"),  # Доля пациентов с '1' в семпле
+      .groups = 'drop'  # Убираем группировку
+    ) 
+
+
+ggplot(df_sample_mean, aes(x = sample_resp)) +
+  geom_histogram(color = 'black', fill = 'white', binwidth = 0.2) +
+  theme_bw()
+```
+
+## Подсчет ошибки
+
+```{r}
+
+error5 <- sqrt( mean((df_sample_mean$sample_resp-true_resp$true_resp)^2) )
+print(error5)
+
+```
+
+```{r}
+#сделаем функцию для подсчета ошибки по выборке
+calculate_error <- function(n_repeats, n_patients, responders){
+  df <- data.frame(resp = c(rep('1', responders), rep('0', 100-responders)))
+  
+  true_resp = responders/100
+  
+df_all_repeats <- map_df(1:n_repeats, ~{
+    df %>%
+      sample_n(n_patients, replace = TRUE) %>%  # Для каждой итерации выбираем X случайных строк
+      mutate(n_exp = .x,   # Добавляем колонку с номером эксперимента
+             id = row_number())
+  })
+
+  df_sample_mean <- df_all_repeats %>% 
+    group_by(n_exp) %>% 
+    summarise(
+      sample_resp = mean(resp == "1"),  # Доля пациентов с '1' в семпле
+      .groups = 'drop'  # Убираем группировку
+    ) 
+
+  error <- sqrt(mean((df_sample_mean$sample_resp - true_resp)^2)) 
+  return(error)
+}
+
+calculate_error(1000, 5, 30)
+```
+
+## Поменяем размер выборки
+
+```{r}
+n_patients <- 20 # Количество добровольцев
+n_repeats <- 1000 # Количество повторений эксперимента
+calculate_error(1000, 20, 30)
+
+ggplot(df_sample_mean, aes(x = sample_resp)) +
+  geom_histogram(color = 'black', fill = 'white', bins = 20) +
+  theme_bw()
+```
+
+```{r}
+n_patients <- 80 # Количество добровольцев
+n_repeats <- 1000 # Количество повторений эксперимента
+calculate_error(1000, 80, 30)
+
+ggplot(df_sample_mean, aes(x = sample_resp)) +
+  geom_histogram(color = 'black', fill = 'white', bins = 20) +
+  theme_bw()
+```
+
+Зависимость от размера выборки получилась такая же как со средним в жксперименте с гемоглобином
+
+Посмотрим на зависимость от истинной доли пациетнов с ответом
+
+```{r}
+true_resp_values <- seq(0, 100, by = 10)
+error_results <- numeric(length(true_resp_values))
+for (i in seq_along(true_resp_values)) {
+  responders <- true_resp_values[i]
+  
+  # Вычисляем ошибку
+  error_results[i] <- calculate_error(1000, 30, responders)
+}
+results_df <- data.frame(
+  resp = true_resp_values,
+  error = error_results
+)
+#print(error_results)
+ggplot(results_df, aes(x = resp, y = error)) +
+   geom_line() +                # Линия
+   geom_point() +               # Точки
+   labs(title = "Ошибка в зависимости от истинного количества пациентов с ответом",
+       x = "Истинное количество",
+       y = "Ошибка") +
+  theme_bw()
+```
+
+Ошибка максимальна при половине пациентов с ответом, похоже, что она описывается через p=доля пациентов с ответом: sqrt(p(1-p)/n)
