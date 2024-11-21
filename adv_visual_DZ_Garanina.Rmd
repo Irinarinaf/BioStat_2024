@@ -1,0 +1,538 @@
+---
+title: "Advanced visualization DZ"
+author: "Irina Garanina"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, results='markup')
+library('readr')
+library('ggplot2')
+library(rstatix)
+library(ggpubr)
+library(tidyverse)
+library(ggcorrplot)
+library(PerformanceAnalytics)
+library(cluster)
+library(factoextra)
+library(pheatmap)
+library(FactoMineR)
+library(plotly)
+library(umap)
+library(gridExtra)
+library(mice)
+library(corrr)
+library(Rtsne)
+library(MASS)
+```
+
+## Tasks 1 and 2
+
+1.  Загрузите датасет very_low_birthweight.RDS (лежит в папке домашнего задания). 
+
+Сделайте копию датасета, в которой удалите колонки с количеством пропусков больше 100, а затем удалите все строки с пропусками. 
+
+2.  Постройте графики плотности распределения для числовых переменных. Удалите выбросы, если таковые имеются. Преобразуйте категориальные переменные в факторы. Для любых двух числовых переменных раскрасьте график по переменной ‘inout’.
+
+```{r}
+ds <- readRDS('very_low_birthweight.RDS')
+glimpse(ds)
+```
+
+```{r}
+summary(ds)
+```
+
+```{r}
+factors <- c("race","inout","delivery", "sex", "twn", "vent", "pneumo", "pda", "cld", "dead")
+
+ds_filtered0 <-  ds %>%
+  #удаление колонок где больше 100 пропусков
+  dplyr::select(where(~sum(is.na(.x)) <= 100)) %>%
+  
+  #перевод категориальных переменных в факторы
+  mutate(across(all_of(factors), as.factor)) %>%
+  
+  #перекодировка факторов
+  mutate(vent = recode(vent, '0' = "No ventilation", '1' = "Ventilation"),
+         pneumo = recode(pneumo, '0' = 'No pneumothorax', '1' = 'Pneumothorax'),
+         pda = recode(pda, '0' = 'No patent ductus arteriosus', '1' = 'Patent ductus arteriosus'),
+         cld = recode(cld, '0' = 'No oxygen', '1' = 'On oxygen'),
+         dead = recode(dead, '0' = 'Alive', '1' = 'Dead'),
+         ID =as.factor(row_number())) %>%
+  
+  #удаление выбросов
+  filter(if_any(where(is.numeric), 
+                ~ .x >= quantile(.x, 0.25, na.rm = TRUE) - 1.5 * IQR(.x, na.rm = TRUE) & 
+                  .x <= quantile(.x, 0.75, na.rm = TRUE) + 1.5 * IQR(.x, na.rm = TRUE))) 
+
+#удаление стоблцов с NA
+ds_filtered <- ds_filtered0 %>% drop_na
+  
+
+summary(ds_filtered)
+```
+
+```{r}
+ds_filtered %>%
+  pivot_longer(cols = where(is.numeric), names_to = "variable", values_to = "value") %>%
+  ggplot(aes(x = value, fill = inout)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~ variable, scales = "free") +
+  labs(title = "Density Plots of Numeric Variables", x = "Value", y = "Density") +
+  theme_minimal()
+```
+
+# Task 3
+
+Проведите тест на сравнение значений колонки ‘lowph’ между группами в переменной inout. Вид статистического теста определите самостоятельно. Визуализируйте результат через библиотеку 'rstatix'. Как бы вы интерпретировали результат, если бы знали, что более низкое значение lowph ассоциировано с более низкой выживаемостью?
+
+```{r}
+t_test_result <- ds_filtered %>%
+  t_test(lowph ~ inout) %>%
+  add_significance() %>%
+  mutate(y.position = max(ds_filtered$lowph, na.rm = TRUE) * 1.05) 
+
+t_test_result
+```
+
+```{r}
+ds_filtered %>%
+  ggplot(aes(x = inout, y = lowph)) +
+  geom_boxplot() +
+  stat_pvalue_manual(t_test_result, label = "p") +
+  labs(x = "Inout Group",
+       y = "Low pH") +
+  theme_minimal()
+```
+
+Я выбрала т-тест поскольку довольно много наблюдений, его результаты показывают, что уровень pH значимо отличается у детей родившихся в Дьюке и привезенных из других госпиталей. Это может говорить о том, что транспортировка детей ухудшает их прогноз, возможно им не успевают оказать необходимую помощь.
+
+# Task 4
+
+Сделайте новый датафрейм, в котором оставьте только континуальные или ранговые данные, кроме 'birth', 'year' и 'exit'. Сделайте корреляционный анализ этих данных. Постройте два любых типа графиков для визуализации корреляций.
+
+```{r}
+continuous_ranked_vars <- ds_filtered %>%
+  dplyr::select(where(~ is.numeric(.x) || is.ordered(.x))) %>%
+  dplyr::select(-birth, -year, -exit)
+
+glimpse(continuous_ranked_vars)
+```
+
+```{r}
+cor_matrix <- cor(continuous_ranked_vars, use = "pairwise.complete.obs", method = "spearman")
+cor_matrix
+```
+
+```{r}
+network_plot(cor_matrix)
+```
+
+```{r,  fig.width=10, fig.height=10}
+chart.Correlation(continuous_ranked_vars, histogram = TRUE, pch = 19)
+```
+
+# Task 5
+
+Постройте иерархическую кластеризацию на этом датафрейме.
+
+```{r}
+distance_matrix <- dist(continuous_ranked_vars, method = "euclidean")
+hclust_result <- hclust(distance_matrix, method = "ward.D2")
+```
+
+```{r}
+label_colors <- ifelse(ds_filtered$dead == "Alive", "blue", "red")
+fviz_dend(hclust_result, 
+          show_labels = TRUE,
+          label_cols = label_colors,
+          main = "Hierarchical Clustering Dendrogram",
+          sub = "", xlab = "", ylab = '')
+```
+
+# Task 6
+
+Сделайте одновременный график heatmap и иерархической кластеризации. Интерпретируйте результат.
+
+```{r}
+pheatmap(cor_matrix, 
+         clustering_distance_rows = "euclidean", 
+         clustering_distance_cols = "euclidean", 
+         clustering_method = "ward.D2", 
+         display_numbers = TRUE, 
+         number_format = "%.2f",
+         main = "Heatmap with Hierarchical Clustering")
+```
+
+По данному графику видно, что числовые переменные можно разделить на 2 группы, которые между собой связаны внутри групп, не считая времени проведенного в госпитале, которая обратно коррелирует со всеми остальными переменными. В первой группе вес при рождении и продолжительность беременности, во второй - pH, значение по шкале Апгар и количество тромбоцитов.
+
+# Tasks 7-10
+
+Проведите PCA анализ на этих данных. Проинтерпретируйте результат. Нужно ли применять шкалирование для этих данных перед проведением PCA?
+
+Постройте biplot график для PCA. Раскрасьте его по значению колонки 'dead'.
+
+Переведите последний график в 'plotly'. При наведении на точку нужно, чтобы отображалось id пациента.
+
+```{r}
+data_scaled <- scale(continuous_ranked_vars)
+pca_result <- PCA(data_scaled, graph = FALSE)
+
+```
+
+В данном случае данные нужно обязательно шкалировать, так как переменные в разных единицах.
+
+## Biplot
+
+```{r,fig.width=10, fig.height=7}
+
+pca_ind <- as.data.frame(pca_result$ind$coord) %>% 
+  mutate(dead = ds_filtered$dead, id = as.character(ds_filtered$ID)) 
+
+pca_var <- as.data.frame(pca_result$var$coord)
+pca_var$Variable <- rownames(pca_var)
+
+p <- ggplot() +
+  geom_point(data = pca_ind, aes(x = Dim.1, y = Dim.2, color = dead, text = id)) +
+  geom_segment(data = pca_var, aes(x = 0, y = 0, xend = Dim.1, yend = Dim.2)) +
+  geom_text(data = pca_var, aes(x = Dim.1, y = Dim.2, label = Variable), hjust = 1.2, vjust = 1.2) +
+  scale_color_manual(values = c("blue", "red")) +
+  labs(title = "Interactive PCA Biplot", x = "PC1", y = "PC2") +
+  theme_minimal()
+
+ggplotly(p, tooltip = "text")
+```
+
+сложно интерпретировать этот график, я пыталась по разному менять размеры стрелок и точек, но для этих данных проще построить отдельный график со стрелками чтобы посмотреть на вклад переменных в главные компоненты
+
+```{r}
+fviz_pca_var(pca_result, col.var = "contrib", gradient.cols = c("blue", "yellow", "red"),
+             repel = TRUE, title = "Contribution of Variables to PCA")
+```
+
+На этом графике еще более четко видно разделение переменных по 3 группам описанным выше. Видно, что есть 2 переменные - вес и срок беременности, которые дают самый весомый вклад в первую компоненту и она объясняет довольно много дисперсии (почти 40%). Вероятно, это 2 главных фактора, которые влияют на состояние недоношенных младенцев. Другие 3 переменные, которые харакетризиют жизненные показатели младенцев тоже вносят большой вклад в первую компоненту, возможно они свзяны с осложнениями при беременности и родах, таких как преэклапсия или инфекции. Вторая компонента основана главным образом на переменной время проведенное в госпитале, вторая компонента объясняет мало дисперсии данных по сравнению с первой. Возможно потому что время пребывания не всегда связано с состоянием пациента, или эта связь сложная, к примеру мало прибывают те, кто умирает или наоборот в хорошем состоянии, а те, кому нужна помощь будут находиться дольше. Похоже на то, что первая компонента разделяет младенцев на умерших и выживших.
+
+Некорректно использовать колонку dead, так как она не дает информации о том когда именно была смерть.
+
+```{r}
+explained_variance <- pca_result$eig[, 2]
+explained_variance_df <- data.frame(
+  Component = paste0("PC", 1:length(explained_variance)),
+  Variance = explained_variance
+)
+
+ggplot(explained_variance_df, aes(x = Component, y = Variance)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  geom_text(aes(label = paste0(round(Variance, 1), "%")), vjust = -0.5, size = 4) +
+  labs(
+    title = "Explained Variance by Principal Components",
+    x = "Principal Component",
+    y = "Explained Variance (%)"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Еще хороший график чтобы понять какие кроме первых двух компонент могут еще вносить вклад. В нашем случае не супер информативно, тк мало переменных в исходном датасете.
+
+# Task 11
+
+```{r}
+umap_result <- umap(continuous_ranked_vars, n_neighbors = 15, min_dist = 0.1, n_components = 2)
+umap_data <- as.data.frame(umap_result$layout)
+umap_data$dead <- ds_filtered$dead
+
+```
+
+```{r}
+ggplot(umap_data, aes(x = V1, y = V2, color = dead)) +
+  geom_point(size = 3, alpha = 0.7) +
+  labs(title = "UMAP Projection", x = "UMAP 1", y = "UMAP 2") +
+  theme_minimal()
+```
+
+С помощью UMAP данные лучше разделились по 2 компоненте, чем по первой, умершие попали так же преимущественно в один кластер как и на PCA.
+
+# Task 12
+
+Чтобы проверить как влияют параметры я сделала 4 варианта параметров и запустила для них UMAP
+
+```{r}
+umap_configs <- list(
+  list(n_neighbors = 5, min_dist = 0.1),
+  list(n_neighbors = 15, min_dist = 0.1),
+  list(n_neighbors = 15, min_dist = 0.5),
+  list(n_neighbors = 30, min_dist = 0.5)
+)
+
+apply_umap <- function(config, data) {
+  result <- umap(data, n_neighbors = config$n_neighbors, min_dist = config$min_dist, n_components = 2)
+  as.data.frame(result$layout) %>%
+    mutate(n_neighbors = config$n_neighbors, min_dist = config$min_dist)
+}
+
+umap_results <- bind_rows(lapply(umap_configs, apply_umap, data = continuous_ranked_vars))
+
+umap_results <- umap_results %>%
+  mutate(dead = rep(ds_filtered$dead, times = length(umap_configs)))
+
+
+ggplot(umap_results, aes(x = V1, y = V2, color = dead)) +
+  geom_point(size = 2, alpha = 0.7) +
+  facet_wrap(~ n_neighbors + min_dist, nrow = 2, ncol = 2, labeller = label_both) +
+  labs(title = "UMAP Projections with Different Parameters",
+       x = "UMAP 1", y = "UMAP 2") +
+  scale_color_manual(values = c("blue", "red")) +
+  theme_minimal()
+```
+
+Проекции с разными параметрами имеют разное количество кластеров: чем больше оба параметра - тем меньше кластеров и тем лучше видно как точки внутри кластеров расположены относительно друг друга. На самом первом графике максимальное количество групп точек, так как алгоритм учитывает только 5 соседних наблюдений, на самом же последнем графике точки все точки сгруппированы вместе.
+
+# Task 13
+
+Пермутация
+
+```{r}
+set.seed(123)
+data_perm_50 <- continuous_ranked_vars %>%
+  mutate(bwt = ifelse(runif(n()) <= 0.5, sample(bwt), bwt))
+
+data_perm_100 <- continuous_ranked_vars %>%
+  mutate(bwt = sample(bwt))
+```
+
+Функции для PCA и UMAP
+
+```{r}
+run_pca <- function(data) {
+  pca_result <- PCA(data, graph = FALSE)
+  return(pca_result)
+}
+
+run_umap <- function(data) {
+  umap_result <- umap(data, n_neighbors = 15, min_dist = 0.1, n_components = 2)
+  return(as.data.frame(umap_result$layout))
+}
+```
+
+```{r}
+#PCA и UMAP для оригинальных данных
+pca_original <- run_pca(continuous_ranked_vars)
+umap_original <- run_umap(continuous_ranked_vars)
+
+#PCA и UMAP для данных с пермутацией 50%
+pca_perm_50 <- run_pca(data_perm_50)
+umap_perm_50 <- run_umap(data_perm_50)
+
+#PCA и UMAP для данных с пермутацией 100%
+pca_perm_100 <- run_pca(data_perm_100)
+umap_perm_100 <- run_umap(data_perm_100)
+```
+
+```{r}
+explained_variance <- tibble(
+  Component = paste0("PC", 1:length(pca_original$eig[, 2])),
+  Original = pca_original$eig[, 2],
+  Permuted_50 = pca_perm_50$eig[, 2] ,
+  Permuted_100 = pca_perm_100$eig[, 2]
+)
+
+print(explained_variance)
+```
+
+Из таблицы выше видно, что пермутация данных ухудшила PCA - первая компонента стала объяснять меньше вариабельности почти на 25% для 100% пермутированных данных по сравнению с оригинальными.
+
+```{r}
+pca_data <- list(
+  Original = as.data.frame(pca_original$ind$coord) %>% mutate(Method = "PCA", Data = "Original", dead = ds_filtered$dead),
+  Permuted_50 = as.data.frame(pca_perm_50$ind$coord) %>% mutate(Method = "PCA", Data = "Permuted 50%", dead = ds_filtered$dead),
+  Permuted_100 = as.data.frame(pca_perm_100$ind$coord) %>% mutate(Method = "PCA", Data = "Permuted 100%", dead = ds_filtered$dead)
+) %>% bind_rows()
+
+umap_data <- list(
+  Original = umap_original %>% 
+    mutate(Method = "UMAP", Data = "Original", dead = ds_filtered$dead),
+  
+  Permuted_50 = umap_perm_50 %>% 
+    mutate(Method = "UMAP", Data = "Permuted 50%", dead = ds_filtered$dead),
+  
+  Permuted_100 = umap_perm_100 %>% 
+    mutate(Method = "UMAP", Data = "Permuted 100%", dead = ds_filtered$dead)
+) %>% bind_rows()
+
+
+combined_data <- bind_rows(
+  pca_data %>% rename(Dim1 = Dim.1, Dim2 = Dim.2),
+  umap_data %>% rename(Dim1 = V1, Dim2 = V2)
+)
+```
+
+```{r}
+ggplot(combined_data, aes(x = Dim1, y = Dim2, color = dead)) +
+  geom_point(size = 2, alpha = 0.5) +
+  facet_grid(Method ~ Data) + 
+  labs(title = "PCA and UMAP Projections with Permuted Data",
+       x = "Dimension 1", y = "Dimension 2") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+Честно говоря на этих данных сложно увидеть эффект пермутации, в теории кластеры должны были значительно поменяться, но на PCA эффект не очень заметен, на UMAP проекции с пермутациями отличаются от изначальной тем, что точки для мертвых не группируются вместе. Чтобы лучше увидеть эффект для PCA нарисовала еще графики со стрелками, на них видно, что bwt вносит меньше вклада чем больше пермутированных значений.
+
+```{r, fig.width=15, fig.height=5}
+pca_var_original <- fviz_pca_var(pca_original, 
+                                 col.var = "contrib", 
+                                 gradient.cols = c("blue", "green", "red"),
+                                 repel = TRUE, 
+                                 title = "PCA Variables: Original Data")
+
+# Permuted 50% Data
+pca_var_perm_50 <- fviz_pca_var(pca_perm_50, 
+                                col.var = "contrib", 
+                                gradient.cols = c("blue", "green", "red"),
+                                repel = TRUE, 
+                                title = "PCA Variables: Permuted 50%")
+
+# Permuted 100% Data
+pca_var_perm_100 <- fviz_pca_var(pca_perm_100, 
+                                 col.var = "contrib", 
+                                 gradient.cols = c("blue", "green", "red"),
+                                 repel = TRUE, 
+                                 title = "PCA Variables: Permuted 100%")
+
+
+grid.arrange(pca_var_original, pca_var_perm_50, pca_var_perm_100, nrow = 1)
+```
+
+# Task 14
+
+Давайте проведем анализ чувствительности. Проведите анализ, как в шагах 4-6 для оригинального с удалением всех строк с пустыми значениями (т.е. включая колонки с количеством пропущенных значений больше 100), а затем для оригинального датафрейма с импутированием пустых значений средним или медианой. Как отличаются получившиеся результаты? В чем преимущества и недостатки каждого подхода?
+
+```{r}
+#импутировала NA регрессией с учетом других значений
+vars_to_exclude <- c("ID", "year", "birth", "exit")
+
+ds_filtered_imp0 <- ds_filtered0 %>% 
+  dplyr::select(-all_of(vars_to_exclude)) %>%
+  mice() %>%
+  complete()
+
+ds_filtered_imp <- bind_cols(ds_filtered_imp0, ds_filtered0 %>%  dplyr::select(all_of(vars_to_exclude)))
+```
+
+```{r}
+continuous_ranked_vars_imp <- ds_filtered_imp %>%
+  dplyr::select(where(~ is.numeric(.x) || is.ordered(.x))) %>%
+  dplyr::select(-birth, -year, -exit)
+```
+
+```{r}
+cor_matrix <- cor(continuous_ranked_vars_imp, use = "pairwise.complete.obs", method = "spearman")
+
+network_plot(cor_matrix)
+```
+
+```{r}
+distance_matrix <- dist(continuous_ranked_vars_imp, method = "euclidean")
+hclust_result <- hclust(distance_matrix, method = "ward.D2")
+label_colors <- ifelse(ds_filtered0$dead == "Alive", "blue", "red")
+
+fviz_dend(hclust_result, 
+          show_labels = TRUE,
+          label_cols = label_colors,
+          main = "Hierarchical Clustering Dendrogram",
+          sub = "", xlab = "", ylab = '')
+```
+
+```{r}
+pheatmap(cor_matrix, 
+         clustering_distance_rows = "euclidean", 
+         clustering_distance_cols = "euclidean", 
+         clustering_method = "ward.D2", 
+         display_numbers = TRUE, 
+         number_format = "%.2f",
+         main = "Heatmap with Hierarchical Clustering")
+```
+
+```{r,  fig.width=10, fig.height=10}
+chart.Correlation(continuous_ranked_vars_imp, histogram = TRUE, pch = 19)
+```
+
+```{r,  fig.width=10, fig.height=10}
+chart.Correlation(continuous_ranked_vars, histogram = TRUE, pch = 19)
+```
+
+Лучше всего видно как повлияла импутация на двух последних графиках: значения корреляции немного поменялись, для некоторых пар значимная корреляция есть только на одном из графиков. Наибольшие изменения для переменных gest и hospstay, у них даже форма гистограмм поменялась. Но в данном анализе сложно понять что больше повлияло - импутация или то что больше 100 строк данных добавилось.
+
+# Task 15
+
+```{r}
+data_scaled <- scale(continuous_ranked_vars_imp)
+pca_result <- PCA(data_scaled, graph = FALSE)
+
+fviz_pca_var(pca_result, col.var = "contrib", gradient.cols = c("blue", "yellow", "red"),
+             repel = TRUE, title = "Contribution of Variables to PCA")
+```
+
+```{r}
+pca_ind <- as.data.frame(pca_result$ind$coord) %>% 
+  mutate(dead = ds_filtered0$dead, id = as.character(ds_filtered0$ID)) 
+
+pca_var <- as.data.frame(pca_result$var$coord)
+pca_var$Variable <- rownames(pca_var)
+
+p <- ggplot() +
+  geom_point(data = pca_ind, aes(x = Dim.1, y = Dim.2, color = dead, text = id)) +
+  geom_segment(data = pca_var, aes(x = 0, y = 0, xend = Dim.1, yend = Dim.2)) +
+  geom_text(data = pca_var, aes(x = Dim.1, y = Dim.2, label = Variable), hjust = 1.2, vjust = 1.2) +
+  scale_color_manual(values = c("blue", "red")) +
+  labs(title = "Interactive PCA Biplot", x = "PC1", y = "PC2") +
+  theme_minimal()
+
+ggplotly(p, tooltip = "text")
+```
+
+```{r}
+umap_result <- umap(continuous_ranked_vars_imp, n_neighbors = 15, min_dist = 0.1, n_components = 2)
+umap_data <- as.data.frame(umap_result$layout)
+umap_data$dead <- ds_filtered0$dead
+
+ggplot(umap_data, aes(x = V1, y = V2, color = dead)) +
+  geom_point(size = 3, alpha = 0.7) +
+  labs(title = "UMAP Projection", x = "UMAP 1", y = "UMAP 2") +
+  theme_minimal()
+```
+
+Видно, что после импутации первая компонента PCA стала объяснять больше изменчивости и на графике проекции умершие и выжившие разделяются на группы гораздо лучше, что говорит о том, что по этим данным лучше получится определить связь смертности с указаными переменными. Еще интересно, что появились достаточно четкие выбросы на PCA, но их нет на UMAP. На UMAP по ощущению импутация вообще не повлияла.
+
+Интересно, что в лекциях не было ничего сказано, что t-SNE, который похож на UMAP, но в биоинформатике гораздо более популярен. Попробовала им тоже сравнить данные до и после импутации и получилось довольно сильное отличие.
+
+```{r}
+set.seed(42)
+tsne_result <- Rtsne(as.matrix(continuous_ranked_vars), dims = 2, perplexity = 30, verbose = TRUE, max_iter = 500)
+
+tsne_data <- data.frame(tsne_result$Y, dead = ds_filtered$dead)
+colnames(tsne_data) <- c("Dim1", "Dim2", "dead")
+
+# t-SNE визуализация
+ggplot(tsne_data, aes(x = Dim1, y = Dim2, color = dead)) +
+  geom_point(size = 2, alpha = 0.7) +
+  labs(title = "t-SNE Visualization", x = "Dimension 1", y = "Dimension 2") +
+  theme_minimal()
+```
+
+```{r}
+set.seed(42)
+tsne_result <- Rtsne(as.matrix(continuous_ranked_vars_imp), dims = 2, perplexity = 30, verbose = TRUE, max_iter = 500)
+
+tsne_data <- data.frame(tsne_result$Y, dead = ds_filtered0$dead)
+colnames(tsne_data) <- c("Dim1", "Dim2", "dead")
+
+# t-SNE визуализация
+ggplot(tsne_data, aes(x = Dim1, y = Dim2, color = dead)) +
+  geom_point(size = 2, alpha = 0.7) +
+  labs(title = "t-SNE Visualization", x = "Dimension 1", y = "Dimension 2") +
+  theme_minimal()
+```
